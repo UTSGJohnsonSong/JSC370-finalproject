@@ -1,5 +1,5 @@
 """
-JSC370 Final Project — data collection and cleaning
+JSC370 Final Project — data pipeline: collection, feature engineering, LASSO selection
 """
 
 import requests
@@ -7,6 +7,11 @@ import pandas as pd
 import numpy as np
 import json
 import os
+import warnings
+warnings.filterwarnings("ignore")
+
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.linear_model import LassoCV
 
 BASE  = os.path.dirname(os.path.abspath(__file__))
 OUT   = os.path.join(BASE, "outputs")
@@ -64,7 +69,6 @@ print("\n=== Stage 1: Data Acquisition ===")
 rc_raw = fetch_rest_countries()
 wb_raw = fetch_world_bank()
 
-# parse REST Countries
 rc_rows = []
 for c in rc_raw:
     iso3 = c.get("cca3", "")
@@ -82,19 +86,16 @@ for c in rc_raw:
     })
 rc = pd.DataFrame(rc_rows).drop_duplicates("iso3")
 
-# clean World Bank
 NON_COUNTRY = {"WLD","HIC","MIC","LMC","UMC","LIC","EAS","ECS","LCN","MEA","NAC","SAS","SSF","EMU"}
 wb = wb_raw.copy()
 wb = wb[wb["iso3"].str.match(r"^[A-Z]{3}$", na=False)]
 wb = wb[~wb["iso3"].isin(NON_COUNTRY)]
 wb = wb.drop_duplicates("iso3")
 
-# merge and clean
 df = rc.merge(wb, on="iso3", how="inner")
 df = df.dropna(subset=["latitude"])
 for col in ["gdp_per_capita","trade_share","urbanization","agriculture_share","population"]:
     df[col] = pd.to_numeric(df[col], errors="coerce")
-
 df = df[df["gdp_per_capita"] > 0]
 df = df[df["urbanization"].between(0, 100)]
 df = df[df["agriculture_share"].between(0, 100)]
@@ -102,5 +103,41 @@ df = df[df["trade_share"] >= 0]
 df = df.dropna(subset=["gdp_per_capita","trade_share","urbanization","agriculture_share","population"])
 print(f"  clean sample: N = {len(df)}")
 
+# ── 2. Feature Engineering ────────────────────────────────────────────────────
+print("\n=== Stage 2: Feature Engineering ===")
+df["dist_equator"]      = df["latitude"].abs()
+df["tropical"]          = (df["dist_equator"] < 23.5).astype(int)
+df["dist_equator_sq"]   = df["dist_equator"] ** 2
+df["log_gdp"]           = np.log(df["gdp_per_capita"])
+df["log_population"]    = np.log(df["population"])
+df["log_trade"]         = np.log(df["trade_share"] + 1)
+df["agri_x_landlocked"] = df["agriculture_share"] * df["landlocked"]
+df["trade_x_urban"]     = df["trade_share"] * df["urbanization"]
+le = LabelEncoder()
+df["region_encoded"]    = le.fit_transform(df["region"].fillna("Unknown"))
+df["high_income"]       = (df["gdp_per_capita"] > 12535).astype(int)
+print(f"  high income: {df['high_income'].sum()} / {len(df)}")
+
+# ── 3. LASSO Variable Selection ───────────────────────────────────────────────
+print("\n=== Stage 3: LASSO ===")
+FEATURES = ["dist_equator","dist_equator_sq","landlocked","tropical",
+            "agriculture_share","trade_share","urbanization","log_trade",
+            "log_population","agri_x_landlocked","trade_x_urban","region_encoded"]
+
+X_all    = df[FEATURES].values
+y_reg    = df["log_gdp"].values
+scaler   = StandardScaler()
+X_scaled = scaler.fit_transform(X_all)
+
+alphas = np.logspace(-4, 1, 50)
+lasso  = LassoCV(cv=5, alphas=alphas, random_state=42, max_iter=10000)
+lasso.fit(X_scaled, y_reg)
+
+selected_features = [f for f, s in zip(FEATURES, lasso.coef_ != 0) if s]
+print(f"  alpha={lasso.alpha_:.4f}, selected {len(selected_features)} features: {selected_features}")
+
+df.to_csv(os.path.join(OUT, "clean_data.csv"), index=False)
 df.to_csv(os.path.join(DATA, "clean_data.csv"), index=False)
-print("  saved data/clean_data.csv")
+with open(os.path.join(OUT, "lasso_selected.json"), "w") as f:
+    json.dump(selected_features, f, indent=2)
+print("  saved outputs/clean_data.csv, outputs/lasso_selected.json")

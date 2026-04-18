@@ -1,0 +1,13 @@
+[
+  "dist_equator_sq",
+  "landlocked",
+  "tropical",
+  "agriculture_share",
+  "trade_share",
+  "urbanization",
+  "log_trade",
+  "log_population",
+  "agri_x_landlocked",
+  "trade_x_urban",
+  "region_encoded"
+]
