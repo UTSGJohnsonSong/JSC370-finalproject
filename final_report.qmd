@@ -1,0 +1,172 @@
+---
+title: "From Geography to Development: Does Economic Structure Mediate the Latitude–Income Association?"
+author: "Zekun Song"
+date: "April 2026"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    toc-location: left
+    toc-title: "Contents"
+    theme: flatly
+    embed-resources: true
+    self-contained: true
+    code-fold: false
+    number-sections: false
+    fig-cap-location: bottom
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{python}
+import pandas as pd
+import numpy as np
+import json
+import os
+import warnings
+warnings.filterwarnings("ignore")
+
+import io
+import base64
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+from IPython.display import display, HTML
+
+def show_fig(fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+    buf.seek(0)
+    b64 = base64.b64encode(buf.read()).decode()
+    plt.close(fig)
+    return HTML(f'<img src="data:image/png;base64,{b64}" style="max-width:100%;height:auto">')
+
+OUT = "outputs"
+
+df       = pd.read_csv(os.path.join(OUT, "clean_data.csv"))
+selected = json.load(open(os.path.join(OUT, "lasso_selected.json")))
+ols_res  = json.load(open(os.path.join(OUT, "ols_results.json")))
+
+df["Income Group"] = df["high_income"].map({1: "High Income", 0: "Non-High Income"})
+```
+
+## Introduction
+
+The latitude–income gradient is one of the most durable patterns in development economics: countries near the equator are poor; countries far from it are rich. Gallup and Sachs (1999) made the case directly — tropical disease burdens, lower agricultural yields, and poor trade access hold equatorial nations back. But the pattern may be misread. Geography may not write income directly; it may instead shape *structure* first — the balance of farming, manufacturing, and services in a country's economy — and structure shapes income.
+
+This project uses 2019 cross-country data for 173 nations to test that claim. **Does adding economic structure variables attenuate the latitude–income association, and by how much?** Three sub-questions frame the analysis:
+
+1. Do geographic characteristics (latitude, landlocked status) predict economic structure (agriculture dependence, urbanisation, trade openness)?
+2. Does economic structure predict national income (GDP per capita)?
+3. Can machine learning classify high-income countries from geographic and structural features — and which variables carry the weight?
+
+Economic structure appears to account for roughly half the raw geography–income gap. Geography persists beyond it, suggesting unmeasured factors — institutional, historical, or otherwise — remain relevant.
+
+## Methods
+
+### Data Sources and Acquisition
+
+Data were obtained from two APIs. **REST Countries** (`restcountries.com/v3.1/all`) provided geographic metadata — latitude, landlocked status, and region — for all sovereign nations. **World Bank Development Indicators** (`api.worldbank.org/v2`) provided five 2019 economic indicators: GDP per capita (NY.GDP.PCAP.CD), trade as a share of GDP (NE.TRD.GNFS.ZS), urban population share (SP.URB.TOTL.IN.ZS), agriculture/forestry/fishing share of GDP (NV.AGR.TOTL.ZS), and total population (SP.POP.TOTL). Both APIs were queried programmatically and responses were cached to ensure reproducibility.
+
+### Data Cleaning and Wrangling
+
+The cleaning pipeline ran in six steps, summarised in Table 1. REST Countries was filtered to valid three-letter ISO codes ($n = 241$). The World Bank response excluded aggregate and regional codes ("WLD", "HIC", etc.) via a curated exclusion list. An inner join on ISO3 produced 214 matched countries. Rows missing latitude and duplicate ISO3 entries were removed. All variables were coerced to numeric and checked for plausibility (GDP > 0; urbanisation, agriculture share ∈ [0, 100]; trade share ≥ 0). A complete-case filter on all five core indicators yielded the final **173-country** sample.
+
+Missingness is concentrated in lower-capacity states: trade share drove most of the drop ($n = 34$, largely small island economies), and agriculture share contributed a further $n = 18$. The sample tilts toward countries with stronger statistical systems, which suggests the agriculture–income gradient in the results may be understated relative to the full global distribution.
+
+```{python}
+#| label: tbl-sample-flow
+#| tbl-cap: "Sample flow from raw API responses to analytic dataset."
+
+flow = pd.DataFrame({
+    "Step": [
+        "REST Countries API (raw)",
+        "After ISO3 length filter (≠ 3)",
+        "World Bank API (raw entries)",
+        "After non-country code exclusion",
+        "After inner join on ISO3",
+        "After plausibility checks",
+        "After complete-case filter (all 5 variables)",
+    ],
+    "N": [250, 241, 300, 248, 214, 212, 173],
+    "Dropped": ["—", "9", "—", "52", "27 (WB only)", "2", "39 (missing indicators)"],
+})
+
+tbl_html = (flow.style
+    .set_caption("")
+    .set_properties(**{"text-align": "left"})
+    .hide(axis="index")
+    .to_html())
+display(HTML(tbl_html))
+```
+
+GDP per capita is strongly right-skewed (skewness ≈ 2.1). Log-transforming it produces a near-symmetric distribution and stabilises variance for OLS. Population gets the same treatment for the same reason.
+
+### Feature Engineering
+
+Seven features were engineered for the classification task. Distance from equator and its square encode the geographic gradient without forcing linearity. *Tropical* (1 if |latitude| < 23.5°) adds a hard cut at the temperate divide. *Log trade* compresses the heavy right tail of trade share. Two interaction terms capture compounding effects: agriculture share × landlocked and trade share × urbanisation. *Region encoded* lets the models absorb continental-level patterns.
+
+### Variable Selection
+
+Feature selection used LASSO regression with 5-fold cross-validation predicting log GDP per capita. All 12 candidate features were standardised ($\mu = 0$, $\sigma = 1$) before fitting. The penalty $\alpha$ was chosen over a 50-point log-linear grid ($\alpha \in [10^{-4},\, 10]$) by held-out MSE; the optimal value was $\alpha = 0.0043$. Eleven of twelve features survived. The one zeroed out — linear distance from equator — had its squared counterpart retained, consistent with a non-linear income gradient.
+
+### Statistical Analysis
+
+Analysis proceeds in two layers for now. Pearson correlations and Welch $t$-tests establish bivariate structure. Five nested OLS models (M1–M5) with HC3 heteroskedasticity-robust standard errors then track how the latitude coefficient moves as structure variables are added sequentially.
+
+## Results
+
+### Descriptive Statistics
+
+```{python}
+#| label: tbl-descriptive
+#| tbl-cap: "Descriptive statistics for the analytic sample (N = 173 countries, 2019)."
+
+desc_vars = {
+    "dist_equator":      "Distance from Equator (°)",
+    "landlocked":        "Landlocked (proportion)",
+    "agriculture_share": "Agriculture Share (% of GDP)",
+    "trade_share":       "Trade Share (% of GDP)",
+    "urbanization":      "Urbanization (% of population)",
+    "gdp_per_capita":    "GDP per Capita (USD)",
+    "log_gdp":           "Log GDP per Capita",
+    "population":        "Population",
+}
+
+rows = []
+for col, label in desc_vars.items():
+    s = df[col]
+    rows.append({
+        "Variable": label,
+        "Mean": s.mean(),
+        "SD": s.std(),
+        "Min": s.min(),
+        "Median": s.median(),
+        "Max": s.max(),
+    })
+desc_df = pd.DataFrame(rows)
+
+def fmt_cell(label, x):
+    if "Population" in label or "GDP per Capita" in label:
+        return f"{x:,.0f}"
+    if "Log GDP" in label:
+        return f"{x:.2f}"
+    return f"{x:.1f}"
+
+for col in ["Mean", "SD", "Min", "Median", "Max"]:
+    desc_df[col] = [fmt_cell(row["Variable"], row[col]) for _, row in desc_df.iterrows()]
+
+desc_styled = (desc_df.style
+    .set_properties(**{"text-align": "right"})
+    .set_properties(subset=["Variable"], **{"text-align": "left"})
+    .hide(axis="index")
+    .set_caption(""))
+display(HTML(desc_styled.to_html()))
+```
+
+The sample spans nearly two orders of magnitude: from \$449 (Central African Republic) to \$115,798 (Bermuda) in GDP per capita, or 6.1 to 11.7 on the log scale. Twenty-one per cent of countries ($n = 37$) are landlocked; 36% clear the high-income threshold. Agriculture share runs from near zero in service-dominated economies to 41% (Syria) — a range that will drive most of the predictive signal downstream.
+
+Distance from the equator correlates negatively with agriculture dependence ($r = -0.39$, $p < 0.001$) and positively with urbanisation ($r = 0.38$, $p < 0.001$). The latitude–income association is strong ($r = 0.55$, $p < 0.001$). Landlocked status does not independently predict trade share once other variables are held constant (Welch $t$-test: $p = 0.52$).

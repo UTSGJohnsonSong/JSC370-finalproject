@@ -1,5 +1,5 @@
 """
-JSC370 Final Project — data pipeline: collection, feature engineering, LASSO selection
+JSC370 Final Project — pipeline: data, features, LASSO, OLS mediation models
 """
 
 import requests
@@ -12,6 +12,7 @@ warnings.filterwarnings("ignore")
 
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.linear_model import LassoCV
+import statsmodels.api as sm
 
 BASE  = os.path.dirname(os.path.abspath(__file__))
 OUT   = os.path.join(BASE, "outputs")
@@ -134,10 +135,47 @@ lasso  = LassoCV(cv=5, alphas=alphas, random_state=42, max_iter=10000)
 lasso.fit(X_scaled, y_reg)
 
 selected_features = [f for f, s in zip(FEATURES, lasso.coef_ != 0) if s]
-print(f"  alpha={lasso.alpha_:.4f}, selected {len(selected_features)} features: {selected_features}")
+print(f"  alpha={lasso.alpha_:.4f}, selected {len(selected_features)}: {selected_features}")
+
+with open(os.path.join(OUT, "lasso_selected.json"), "w") as f:
+    json.dump(selected_features, f, indent=2)
+
+# ── 3.5. OLS Mediation Models (M1-M5, HC3 robust SE) ─────────────────────────
+print("\n=== Stage 3.5: OLS Mediation Models ===")
+y_ols = df["log_gdp"]
+models_spec = {
+    "M1": ["dist_equator"],
+    "M2": ["dist_equator", "landlocked"],
+    "M3": ["dist_equator", "landlocked", "agriculture_share"],
+    "M4": ["dist_equator", "landlocked", "agriculture_share", "urbanization"],
+    "M5": ["dist_equator", "landlocked", "agriculture_share", "urbanization", "trade_share"],
+}
+
+ols_results = {}
+for mname, cols in models_spec.items():
+    X_ols = sm.add_constant(df[cols])
+    fit   = sm.OLS(y_ols, X_ols).fit(cov_type="HC3")
+    coef  = float(fit.params["dist_equator"])
+    se    = float(fit.bse["dist_equator"])
+    pval  = float(fit.pvalues["dist_equator"])
+    ols_results[mname] = {
+        "n": int(fit.nobs),
+        "r2": round(float(fit.rsquared), 4),
+        "adj_r2": round(float(fit.rsquared_adj), 4),
+        "coef_dist_equator": round(coef, 4),
+        "se_dist_equator":   round(se,   4),
+        "pval_dist_equator": round(pval, 4),
+        "controls": cols[1:],
+    }
+    print(f"  {mname}: coef={coef:.4f}  SE={se:.4f}  p={pval:.4f}  R2={fit.rsquared:.3f}")
+
+coef_m1 = ols_results["M1"]["coef_dist_equator"]
+coef_m5 = ols_results["M5"]["coef_dist_equator"]
+ols_results["attenuation_pct"] = round((coef_m1 - coef_m5) / coef_m1 * 100, 1)
+print(f"  attenuation M1->M5: {ols_results['attenuation_pct']}%")
 
 df.to_csv(os.path.join(OUT, "clean_data.csv"), index=False)
 df.to_csv(os.path.join(DATA, "clean_data.csv"), index=False)
-with open(os.path.join(OUT, "lasso_selected.json"), "w") as f:
-    json.dump(selected_features, f, indent=2)
-print("  saved outputs/clean_data.csv, outputs/lasso_selected.json")
+with open(os.path.join(OUT, "ols_results.json"), "w") as f:
+    json.dump(ols_results, f, indent=2)
+print("  saved ols_results.json")

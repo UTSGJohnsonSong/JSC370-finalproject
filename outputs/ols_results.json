@@ -1,0 +1,62 @@
+{
+  "M1": {
+    "n": 173,
+    "r2": 0.2986,
+    "adj_r2": 0.2945,
+    "coef_dist_equator": 0.0449,
+    "se_dist_equator": 0.0047,
+    "pval_dist_equator": 0.0,
+    "controls": []
+  },
+  "M2": {
+    "n": 173,
+    "r2": 0.3944,
+    "adj_r2": 0.3873,
+    "coef_dist_equator": 0.0481,
+    "se_dist_equator": 0.0043,
+    "pval_dist_equator": 0.0,
+    "controls": [
+      "landlocked"
+    ]
+  },
+  "M3": {
+    "n": 173,
+    "r2": 0.7106,
+    "adj_r2": 0.7054,
+    "coef_dist_equator": 0.0262,
+    "se_dist_equator": 0.0046,
+    "pval_dist_equator": 0.0,
+    "controls": [
+      "landlocked",
+      "agriculture_share"
+    ]
+  },
+  "M4": {
+    "n": 173,
+    "r2": 0.7495,
+    "adj_r2": 0.7435,
+    "coef_dist_equator": 0.022,
+    "se_dist_equator": 0.0045,
+    "pval_dist_equator": 0.0,
+    "controls": [
+      "landlocked",
+      "agriculture_share",
+      "urbanization"
+    ]
+  },
+  "M5": {
+    "n": 173,
+    "r2": 0.7621,
+    "adj_r2": 0.755,
+    "coef_dist_equator": 0.0219,
+    "se_dist_equator": 0.0043,
+    "pval_dist_equator": 0.0,
+    "controls": [
+      "landlocked",
+      "agriculture_share",
+      "urbanization",
+      "trade_share"
+    ]
+  },
+  "attenuation_pct": 51.2
+}
