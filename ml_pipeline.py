@@ -13,6 +13,12 @@ warnings.filterwarnings("ignore")
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.linear_model import LassoCV
 import statsmodels.api as sm
+from sklearn.linear_model import LogisticRegressionCV
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
+from sklearn.metrics import (accuracy_score, precision_score, recall_score,
+                              f1_score, roc_auc_score, confusion_matrix)
+from xgboost import XGBClassifier
 
 BASE  = os.path.dirname(os.path.abspath(__file__))
 OUT   = os.path.join(BASE, "outputs")
@@ -179,3 +185,107 @@ df.to_csv(os.path.join(DATA, "clean_data.csv"), index=False)
 with open(os.path.join(OUT, "ols_results.json"), "w") as f:
     json.dump(ols_results, f, indent=2)
 print("  saved ols_results.json")
+
+# ── 4. Train/Test Split ───────────────────────────────────────────────────────
+print("\n=== Stage 4: Train/Test Split ===")
+X = df[selected_features].values
+y = df["high_income"].values
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, stratify=y, random_state=42)
+
+scaler_cls = StandardScaler()
+X_train_s = scaler_cls.fit_transform(X_train)
+X_test_s  = scaler_cls.transform(X_test)
+
+split_info = {
+    "n_total": int(len(df)),
+    "n_train": int(len(X_train)),
+    "n_test":  int(len(X_test)),
+    "high_income_train_pct": float(y_train.mean() * 100),
+    "high_income_test_pct":  float(y_test.mean() * 100),
+}
+print(f"  Train: N={split_info['n_train']}  Test: N={split_info['n_test']}")
+with open(os.path.join(OUT, "train_test_split_info.json"), "w") as f:
+    json.dump(split_info, f, indent=2)
+
+# ── 5. ML Models ──────────────────────────────────────────────────────────────
+print("\n=== Stage 5: ML Models ===")
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+metrics_out = {}
+conf_matrices = {}
+importances = {f: {} for f in selected_features}
+
+def eval_model(name, model, X_tr, X_te, y_tr, y_te):
+    model.fit(X_tr, y_tr)
+    y_pred = model.predict(X_te)
+    y_prob = model.predict_proba(X_te)[:, 1]
+    result = {
+        "accuracy":  round(float(accuracy_score(y_te, y_pred)), 4),
+        "precision": round(float(precision_score(y_te, y_pred, zero_division=0)), 4),
+        "recall":    round(float(recall_score(y_te, y_pred, zero_division=0)), 4),
+        "f1":        round(float(f1_score(y_te, y_pred, zero_division=0)), 4),
+        "auc":       round(float(roc_auc_score(y_te, y_prob)), 4),
+    }
+    conf_matrices[name] = confusion_matrix(y_te, y_pred).tolist()
+    print(f"  {name}: Acc={result['accuracy']} F1={result['f1']} AUC={result['auc']}")
+    return result
+
+# Logistic Regression
+print("  [A] Logistic Regression...")
+lr = LogisticRegressionCV(cv=cv, max_iter=2000, random_state=42, scoring="roc_auc")
+res_lr = eval_model("logistic", lr, X_train_s, X_test_s, y_train, y_test)
+res_lr["best_params"] = {"C": float(lr.C_[0])}
+metrics_out["logistic"] = res_lr
+imp_lr = np.abs(lr.coef_[0])
+imp_lr = imp_lr / imp_lr.sum() if imp_lr.sum() > 0 else imp_lr
+for f, v in zip(selected_features, imp_lr):
+    importances[f]["lr"] = round(float(v), 4)
+
+# Random Forest
+print("  [B] Random Forest...")
+rf_base = RandomForestClassifier(n_estimators=200, random_state=42)
+rf_grid = GridSearchCV(rf_base,
+    param_grid={"max_depth": [3, 5, 7, None], "min_samples_leaf": [1, 2, 5]},
+    cv=cv, scoring="roc_auc", n_jobs=-1)
+rf_grid.fit(X_train, y_train)
+rf_best = rf_grid.best_estimator_
+res_rf = eval_model("random_forest", rf_best, X_train, X_test, y_train, y_test)
+res_rf["best_params"] = rf_grid.best_params_
+metrics_out["random_forest"] = res_rf
+imp_rf = rf_best.feature_importances_
+for f, v in zip(selected_features, imp_rf):
+    importances[f]["rf"] = round(float(v), 4)
+
+# XGBoost
+print("  [C] XGBoost...")
+xgb_base = XGBClassifier(n_estimators=200, random_state=42,
+                          eval_metric="logloss", verbosity=0)
+xgb_grid = GridSearchCV(xgb_base,
+    param_grid={"max_depth": [3, 4, 5],
+                "learning_rate": [0.05, 0.1, 0.2],
+                "subsample": [0.7, 1.0]},
+    cv=cv, scoring="roc_auc", n_jobs=-1)
+xgb_grid.fit(X_train, y_train)
+xgb_best = xgb_grid.best_estimator_
+res_xgb = eval_model("xgboost", xgb_best, X_train, X_test, y_train, y_test)
+res_xgb["best_params"] = xgb_grid.best_params_
+metrics_out["xgboost"] = res_xgb
+imp_xgb = xgb_best.feature_importances_
+for f, v in zip(selected_features, imp_xgb):
+    importances[f]["xgb"] = round(float(v), 4)
+
+with open(os.path.join(OUT, "metrics.json"), "w") as f:
+    json.dump(metrics_out, f, indent=2)
+with open(os.path.join(OUT, "confusion_matrices.json"), "w") as f:
+    json.dump(conf_matrices, f, indent=2)
+
+imp_df = pd.DataFrame([
+    {"feature": feat,
+     "lr_importance":  importances[feat].get("lr", 0),
+     "rf_importance":  importances[feat].get("rf", 0),
+     "xgb_importance": importances[feat].get("xgb", 0)}
+    for feat in selected_features
+])
+imp_df.to_csv(os.path.join(OUT, "feature_importance.csv"), index=False)
+print("  saved metrics.json, confusion_matrices.json, feature_importance.csv")

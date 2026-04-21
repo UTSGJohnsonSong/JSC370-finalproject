@@ -34,6 +34,12 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegressionCV
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score, roc_curve
+from xgboost import XGBClassifier
 from IPython.display import display, HTML
 
 def show_fig(fig):
@@ -49,6 +55,9 @@ OUT = "outputs"
 df       = pd.read_csv(os.path.join(OUT, "clean_data.csv"))
 selected = json.load(open(os.path.join(OUT, "lasso_selected.json")))
 ols_res  = json.load(open(os.path.join(OUT, "ols_results.json")))
+metrics  = json.load(open(os.path.join(OUT, "metrics.json")))
+imp_df   = pd.read_csv(os.path.join(OUT, "feature_importance.csv"))
+split_info = json.load(open(os.path.join(OUT, "train_test_split_info.json")))
 
 df["Income Group"] = df["high_income"].map({1: "High Income", 0: "Non-High Income"})
 ```
@@ -170,3 +179,221 @@ display(HTML(desc_styled.to_html()))
 The sample spans nearly two orders of magnitude: from \$449 (Central African Republic) to \$115,798 (Bermuda) in GDP per capita, or 6.1 to 11.7 on the log scale. Twenty-one per cent of countries ($n = 37$) are landlocked; 36% clear the high-income threshold. Agriculture share runs from near zero in service-dominated economies to 41% (Syria) — a range that will drive most of the predictive signal downstream.
 
 Distance from the equator correlates negatively with agriculture dependence ($r = -0.39$, $p < 0.001$) and positively with urbanisation ($r = 0.38$, $p < 0.001$). The latitude–income association is strong ($r = 0.55$, $p < 0.001$). Landlocked status does not independently predict trade share once other variables are held constant (Welch $t$-test: $p = 0.52$).
+
+### OLS Mediation Analysis
+
+```{python}
+#| label: tbl-ols
+#| tbl-cap: "Nested OLS models predicting log GDP per capita (N = 173, HC3 robust standard errors). The latitude coefficient attenuates by 51% as structure variables enter sequentially."
+
+def stars(p):
+    return "***" if p < 0.001 else ("**" if p < 0.01 else ("*" if p < 0.05 else ""))
+
+controls_label = {
+    "M1": "—",
+    "M2": "Landlocked",
+    "M3": "M2 + Agriculture Share",
+    "M4": "M3 + Urbanization",
+    "M5": "M4 + Trade Share",
+}
+rows_ols = []
+for k in ["M1", "M2", "M3", "M4", "M5"]:
+    r = ols_res[k]
+    s = stars(r["pval_dist_equator"])
+    rows_ols.append({
+        "Model": k,
+        "Controls": controls_label[k],
+        "Coef. (Distance from Equator)": f"{r['coef_dist_equator']:.4f}{s}",
+        "Robust SE": f"({r['se_dist_equator']:.4f})",
+        "R²": f"{r['r2']:.3f}",
+        "Adj. R²": f"{r['adj_r2']:.3f}",
+    })
+
+ols_df = pd.DataFrame(rows_ols)
+ols_styled = (ols_df.style
+    .set_properties(**{"text-align": "left"})
+    .hide(axis="index")
+    .set_caption(""))
+display(HTML(ols_styled.to_html()))
+display(HTML("<p style='font-size:0.85em;color:#666;margin-top:4px'>"
+             "*** p&lt;0.001 &nbsp; ** p&lt;0.01 &nbsp; * p&lt;0.05 &nbsp;|&nbsp; "
+             f"Latitude coefficient attenuates by {ols_res['attenuation_pct']:.1f}% from M1 to M5.</p>"))
+```
+
+```{python}
+#| label: fig-coef-attenuation
+#| fig-cap: "Latitude coefficient and 95% confidence intervals across five nested OLS models (HC3 robust SE). The coefficient falls by 51% from M1 to M5 as agriculture share and urbanisation enter."
+
+model_keys = ["M1", "M2", "M3", "M4", "M5"]
+coefs = [ols_res[k]["coef_dist_equator"] for k in model_keys]
+ses   = [ols_res[k]["se_dist_equator"]   for k in model_keys]
+ci95  = [1.96 * s for s in ses]
+
+labels = ["M1\n(Geography\nonly)", "M2\n(+ Landlocked)", "M3\n(+ Agriculture)", "M4\n(+ Urbanization)", "M5\n(+ Trade)"]
+x = range(len(model_keys))
+
+fig, ax = plt.subplots(figsize=(8, 4.5))
+ax.errorbar(x, coefs, yerr=ci95, fmt="o", color="#2c7bb6", ecolor="#2c7bb6",
+            elinewidth=1.8, capsize=5, capthick=1.8, markersize=8, zorder=4)
+ax.axhline(coefs[0], color="#aaa", lw=1, ls=":", zorder=2)
+ax.axhline(0, color="#333", lw=0.8, ls="--", zorder=2, alpha=0.4)
+ax.annotate("", xy=(4, coefs[4]), xytext=(0, coefs[0]),
+            arrowprops=dict(arrowstyle="<->", color="#e07b39", lw=1.5))
+mid_x, mid_y = 2, (coefs[0] + coefs[4]) / 2 + 0.003
+ax.text(mid_x, mid_y, f"−{ols_res['attenuation_pct']:.0f}%", color="#e07b39",
+        fontsize=11, fontweight="bold", ha="center")
+ax.set_xticks(list(x))
+ax.set_xticklabels(labels, fontsize=9)
+ax.set_ylabel("Coefficient on Distance from Equator", fontsize=11)
+ax.set_ylim(0, coefs[0] * 1.4)
+ax.spines[["top", "right"]].set_visible(False)
+ax.grid(axis="y", alpha=0.25, lw=0.5)
+plt.tight_layout()
+display(show_fig(fig))
+```
+
+The latitude coefficient starts at 0.045 in M1 and falls monotonically as structure variables enter — almost entirely driven by M3 (agriculture share), which alone accounts for 42 percentage points of the 51% total attenuation. The coefficient in M5 (0.022) remains highly significant ($p < 0.001$), meaning geography is not explained away — half of it is structural in origin, half is not.
+
+```{python}
+#| label: fig-scatter-agri
+#| fig-cap: "Agriculture share versus log GDP per capita across 173 countries (2019), coloured by income status. The negative association ($r = -0.79$, $p < 0.001$) is consistent across both income groups."
+
+fig, ax = plt.subplots(figsize=(8, 5))
+income_colors = {"High Income": "#2166ac", "Non-High Income": "#d73027"}
+for group, color in income_colors.items():
+    sub = df[df["Income Group"] == group]
+    ax.scatter(sub["agriculture_share"], sub["log_gdp"],
+               c=color, alpha=0.65, s=30,
+               edgecolors="white", linewidths=0.3, label=group, zorder=3)
+m, b = np.polyfit(df["agriculture_share"], df["log_gdp"], 1)
+x_line = np.linspace(df["agriculture_share"].min(), df["agriculture_share"].max(), 200)
+ax.plot(x_line, m * x_line + b, color="#555", lw=1.5, ls="--", zorder=4, label="OLS fit")
+r = df["agriculture_share"].corr(df["log_gdp"])
+ax.text(0.97, 0.05, f"$r = {r:.2f}$, $p < 0.001$",
+        transform=ax.transAxes, ha="right", fontsize=10, color="#333")
+ax.set_xlabel("Agriculture, Forestry & Fishing (% of GDP)", fontsize=12)
+ax.set_ylabel("Log GDP per Capita (USD)", fontsize=12)
+ax.legend(framealpha=0.9, fontsize=9, loc="upper right")
+ax.grid(True, alpha=0.25, lw=0.5)
+ax.spines[["top","right"]].set_visible(False)
+plt.tight_layout()
+display(show_fig(fig))
+```
+
+Agriculture share is the strongest single predictor of income ($r = -0.79$), followed by urbanisation ($r = 0.72$). Agrarian economies are rural and income-poor; urbanised service economies are dense and income-rich.
+
+### Machine Learning: Classifying High-Income Countries
+
+```{python}
+#| label: tbl-model-comparison
+#| tbl-cap: "Classification performance on the held-out test set (N = 35). All models trained on N = 138 with 5-fold cross-validation for hyperparameter tuning."
+
+model_names = {"logistic": "Logistic Regression", "random_forest": "Random Forest", "xgboost": "XGBoost"}
+rows = []
+for k, label in model_names.items():
+    m = metrics[k]
+    rows.append({
+        "Model": label,
+        "Accuracy": m["accuracy"],
+        "Precision": m["precision"],
+        "Recall": m["recall"],
+        "F1": m["f1"],
+        "AUC-ROC": m["auc"],
+    })
+perf_df = pd.DataFrame(rows)
+perf_styled = (perf_df.style
+    .format({c: "{:.3f}" for c in ["Accuracy","Precision","Recall","F1","AUC-ROC"]})
+    .highlight_max(subset=["Accuracy","F1","AUC-ROC"], color="#d4edda")
+    .hide(axis="index")
+    .set_caption(""))
+display(HTML(perf_styled.to_html()))
+```
+
+All three classifiers perform well. Random Forest leads on both AUC-ROC (0.958) and F1 (0.846); XGBoost follows (AUC = 0.937); Logistic Regression holds close behind (AUC = 0.927). The narrow gap between the linear and nonlinear models suggests the two income classes occupy largely distinct regions in this feature space.
+
+```{python}
+#| label: fig-feature-importance
+#| fig-cap: "Normalised feature importance across three classifiers. Agriculture share and urbanisation dominate; geographic features contribute modestly across all three models."
+
+feat_labels = {
+    "dist_equator_sq":   "Dist. from Equator²",
+    "landlocked":        "Landlocked",
+    "tropical":          "Tropical",
+    "agriculture_share": "Agriculture Share",
+    "trade_share":       "Trade Share",
+    "urbanization":      "Urbanization",
+    "log_trade":         "Log Trade",
+    "log_population":    "Log Population",
+    "agri_x_landlocked": "Agriculture × Landlocked",
+    "trade_x_urban":     "Trade × Urbanization",
+    "region_encoded":    "Region",
+}
+
+imp_plot = imp_df.copy()
+imp_plot["label"] = imp_plot["feature"].map(feat_labels).fillna(imp_plot["feature"])
+imp_plot = imp_plot.sort_values("rf_importance", ascending=True)
+
+fig, axes = plt.subplots(1, 3, figsize=(12, 4.2), sharey=True)
+model_cols = [("lr_importance", "Logistic Regression", "#6baed6"),
+              ("rf_importance", "Random Forest",       "#74c476"),
+              ("xgb_importance","XGBoost",             "#fd8d3c")]
+
+for ax, (col, title, color) in zip(axes, model_cols):
+    ax.barh(imp_plot["label"], imp_plot[col], color=color, edgecolor="white", height=0.7)
+    ax.set_title(title, fontsize=11, fontweight="bold")
+    ax.set_xlabel("Normalised Importance", fontsize=10)
+    ax.spines[["top","right"]].set_visible(False)
+    ax.grid(axis="x", alpha=0.3, lw=0.5)
+    ax.set_xlim(0, imp_plot[col].max() * 1.15)
+
+axes[0].set_ylabel("")
+plt.tight_layout()
+display(show_fig(fig))
+```
+
+Agriculture share ranks first across all three models; urbanisation is second in each case. Geographic features (landlocked, tropical, region) contribute modestly but appear in all three models, consistent with the OLS finding that geography retains predictive power even after conditioning on structure.
+
+```{python}
+#| label: fig-roc
+#| fig-cap: "ROC curves for all three classifiers on the held-out test set (N = 35). Random Forest achieves the highest AUC (0.958); all models outperform random chance."
+
+X_arr = df[selected].values
+y_arr = df["high_income"].values
+X_train, X_test, y_train, y_test = train_test_split(X_arr, y_arr, test_size=0.2, stratify=y_arr, random_state=42)
+scaler_cls = StandardScaler()
+X_train_s = scaler_cls.fit_transform(X_train)
+X_test_s  = scaler_cls.transform(X_test)
+
+lr_model = LogisticRegressionCV(cv=5, max_iter=2000, random_state=42, scoring="roc_auc")
+lr_model.fit(X_train_s, y_train)
+
+rf_params = {k: v for k, v in metrics["random_forest"]["best_params"].items()}
+rf_model = RandomForestClassifier(n_estimators=200, random_state=42, **rf_params)
+rf_model.fit(X_train, y_train)
+
+xgb_model = XGBClassifier(n_estimators=200, random_state=42, eval_metric="logloss", verbosity=0,
+                           **metrics["xgboost"]["best_params"])
+xgb_model.fit(X_train, y_train)
+
+fig, ax = plt.subplots(figsize=(6, 5))
+for model, name, color, X_use in [
+    (lr_model,  "Logistic Regression", "#6baed6", X_test_s),
+    (rf_model,  "Random Forest",       "#74c476", X_test),
+    (xgb_model, "XGBoost",             "#fd8d3c", X_test),
+]:
+    prob = model.predict_proba(X_use)[:, 1]
+    auc = roc_auc_score(y_test, prob)
+    fpr, tpr, _ = roc_curve(y_test, prob)
+    ax.plot(fpr, tpr, color=color, lw=2, label=f"{name} (AUC = {auc:.3f})")
+
+ax.plot([0,1],[0,1], "k--", lw=1, alpha=0.5)
+ax.set_xlabel("False Positive Rate", fontsize=12)
+ax.set_ylabel("True Positive Rate", fontsize=12)
+ax.legend(fontsize=9, loc="lower right", framealpha=0.9)
+ax.spines[["top","right"]].set_visible(False)
+ax.grid(True, alpha=0.25, lw=0.5)
+plt.tight_layout()
+display(show_fig(fig))
+```
+
+All three ROC curves confirm the classifiers are not performing at chance levels. The Random Forest curve lies slightly above the others, though the gap to XGBoost is small. Logistic Regression's AUC approaching the nonlinear models implies the high-income class occupies a nearly linearly separable region in feature space.

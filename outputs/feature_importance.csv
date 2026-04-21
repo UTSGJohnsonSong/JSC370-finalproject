@@ -1,0 +1,12 @@
+feature,lr_importance,rf_importance,xgb_importance
+dist_equator_sq,0.0936,0.0902,0.0669
+landlocked,0.1062,0.0106,0.0
+tropical,0.0622,0.0249,0.0
+agriculture_share,0.2916,0.3766,0.4092
+trade_share,0.0079,0.05,0.0192
+urbanization,0.1212,0.1244,0.035
+log_trade,0.0154,0.05,0.0
+log_population,0.1267,0.0622,0.0695
+agri_x_landlocked,0.0783,0.0166,0.0
+trade_x_urban,0.0255,0.1307,0.0751
+region_encoded,0.0714,0.0639,0.325

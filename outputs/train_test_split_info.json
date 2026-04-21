@@ -1,0 +1,7 @@
+{
+  "n_total": 173,
+  "n_train": 138,
+  "n_test": 35,
+  "high_income_train_pct": 36.231884057971016,
+  "high_income_test_pct": 37.142857142857146
+}
