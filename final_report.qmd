@@ -285,7 +285,7 @@ plt.tight_layout()
 display(show_fig(fig))
 ```
 
-Agriculture share is the strongest single predictor of income ($r = -0.79$), followed by urbanisation ($r = 0.72$). Agrarian economies are rural and income-poor; urbanised service economies are dense and income-rich.
+Agriculture share is the strongest single predictor of income ($r = -0.79$), followed by urbanisation ($r = 0.72$). Agrarian economies are rural and income-poor; urbanised service economies are dense and income-rich. Agriculture share likely proxies for multiple underlying constraints — including productivity, capital intensity, and institutional development — rather than acting as a direct causal driver itself.
 
 ### Machine Learning: Classifying High-Income Countries
 
@@ -314,7 +314,7 @@ perf_styled = (perf_df.style
 display(HTML(perf_styled.to_html()))
 ```
 
-All three classifiers perform well. Random Forest leads on both AUC-ROC (0.958) and F1 (0.846); XGBoost follows (AUC = 0.937); Logistic Regression holds close behind (AUC = 0.927). The narrow gap between the linear and nonlinear models suggests the two income classes occupy largely distinct regions in this feature space.
+All three classifiers perform well. Random Forest leads on both AUC-ROC (0.958) and F1 (0.846); XGBoost follows (AUC = 0.937); Logistic Regression holds close behind (AUC = 0.927). The strong performance across all models suggests that the chosen features capture most of the variance separating high- and low-income countries. The minimal gap between the linear and nonlinear models is somewhat surprising: it implies that global income differences may be captured by relatively simple decision boundaries, and that the feature representation is doing most of the discriminative work rather than the model architecture.
 
 ```{python}
 #| label: fig-feature-importance
@@ -486,10 +486,12 @@ Three interactive figures are available at the [interactive visualizations page]
 
 ## Conclusions and Summary
 
-The central question was whether economic structure mediates the latitude–income association. The results are consistent with partial mediation: the latitude coefficient attenuates by 51% once agriculture share and urbanisation enter the model, and K-Means clustering on structural variables alone recovers the income divide closely. But geography does not dissolve — the coefficient in M5 remains highly significant ($p < 0.001$).
+The central question was whether economic structure mediates the latitude–income association. The results are consistent with partial mediation: the latitude coefficient attenuates by 51% once agriculture share and urbanisation enter the model, and K-Means clustering on structural variables alone recovers the income divide closely. But geography does not dissolve — the coefficient in M5 remains highly significant ($p < 0.001$). This result should not be interpreted causally. The attenuation reflects statistical mediation, not necessarily a structural pathway from geography to income through economic structure; confounding by unmeasured institutional and historical factors cannot be ruled out.
 
-All three classifiers achieve AUC above 0.92, and the narrow gap between Logistic Regression and Random Forest suggests the two income classes are largely separable in the feature space constructed here.
+All three classifiers achieve AUC above 0.92, and the narrow gap between Logistic Regression and Random Forest (0.927 vs 0.958) is itself informative: it suggests the income classes occupy a largely linearly separable region in this feature space, with architecture choice contributing relatively little beyond the features themselves.
 
 **Limitations.** The analysis is cross-sectional — 2019 is a single slice, and causal claims are not available. The 39-country attrition concentrated in low-capacity states likely compresses the agriculture–income gradient relative to the full global population. Geographic proxies are coarse — latitude captures distance from the equator, not tropical disease burden, colonial extraction, or maritime access. The test set is small ($n = 35$); AUC estimates carry real uncertainty.
 
 **What comes next.** A panel from 1990–2020 would allow fixed-effects models to separate within-country dynamics from between-country levels. Adding institutional quality data would close the gap between the measured and unmeasured layers.
+
+Geography matters — but not in the way it first appears. Its influence operates largely through the economic structures it helps shape, leaving a residual gap that points to deeper institutional and historical forces beyond what geography alone can explain.
