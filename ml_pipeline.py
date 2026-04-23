@@ -289,3 +289,52 @@ imp_df = pd.DataFrame([
 ])
 imp_df.to_csv(os.path.join(OUT, "feature_importance.csv"), index=False)
 print("  saved metrics.json, confusion_matrices.json, feature_importance.csv")
+
+# ── 6. K-Means Clustering ─────────────────────────────────────────────────────
+print("\n=== Stage 6: K-Means Clustering ===")
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+
+km_features = ["agriculture_share", "urbanization", "trade_share"]
+X_km = StandardScaler().fit_transform(df[km_features].values)
+
+km_diag = []
+for k in range(2, 9):
+    km = KMeans(n_clusters=k, random_state=42, n_init=10)
+    labels = km.fit_predict(X_km)
+    sil = silhouette_score(X_km, labels)
+    km_diag.append({"k": k, "inertia": round(km.inertia_, 2), "silhouette": round(sil, 4)})
+
+km_df = pd.DataFrame(km_diag)
+best_k = int(km_df.loc[km_df["silhouette"].idxmax(), "k"])
+print(f"  Best K = {best_k} (silhouette = {km_df.loc[km_df['k']==best_k,'silhouette'].values[0]})")
+
+km_final = KMeans(n_clusters=best_k, random_state=42, n_init=10)
+df["cluster"] = km_final.fit_predict(X_km)
+
+km_df.to_csv(os.path.join(OUT, "kmeans_diagnostics.csv"), index=False)
+crosstab = pd.crosstab(df["cluster"], df["high_income"],
+                       rownames=["Cluster"], colnames=["High Income"])
+crosstab.to_csv(os.path.join(OUT, "cluster_crosstab.csv"))
+print("  Cluster × High Income crosstab:")
+print(crosstab)
+
+# ── 7. Save updated data ──────────────────────────────────────────────────────
+print("\n=== Stage 7: Saving Datasets ===")
+df.to_csv(os.path.join(OUT, "clean_data.csv"), index=False)
+df.to_csv(os.path.join(DATA, "clean_data.csv"), index=False)
+with open(os.path.join(OUT, "train_test_split_info.json"), "w") as f:
+    json.dump(split_info, f, indent=2)
+
+# ── 8. Summary ────────────────────────────────────────────────────────────────
+print("\n=== SUMMARY ===")
+print(f"  Sample: N = {len(df)}")
+print(f"  Selected features: {selected_features}")
+print(f"\n  Model Comparison:")
+print(f"  {'Model':<20} {'Accuracy':>9} {'F1':>9} {'AUC':>9}")
+print(f"  {'-'*50}")
+for m, v in metrics_out.items():
+    print(f"  {m:<20} {v['accuracy']:>9.4f} {v['f1']:>9.4f} {v['auc']:>9.4f}")
+print(f"\n  Best K for clustering: {best_k}")
+print(f"\n  Output files saved to: {OUT}")
+print("\n=== PIPELINE COMPLETE ===")

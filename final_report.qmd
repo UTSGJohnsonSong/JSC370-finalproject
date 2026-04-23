@@ -58,6 +58,11 @@ ols_res  = json.load(open(os.path.join(OUT, "ols_results.json")))
 metrics  = json.load(open(os.path.join(OUT, "metrics.json")))
 imp_df   = pd.read_csv(os.path.join(OUT, "feature_importance.csv"))
 split_info = json.load(open(os.path.join(OUT, "train_test_split_info.json")))
+km_diag  = pd.read_csv(os.path.join(OUT, "kmeans_diagnostics.csv"))
+
+CLUSTER_NAMES = {0: "Agrarian", 1: "Mixed / Transitional", 2: "Urban Service"}
+PALETTE = {"Agrarian": "#e07b39", "Mixed / Transitional": "#4c8bb5", "Urban Service": "#2ca02c"}
+df["Cluster Type"] = df["cluster"].map(CLUSTER_NAMES)
 
 df["Income Group"] = df["high_income"].map({1: "High Income", 0: "Non-High Income"})
 ```
@@ -397,3 +402,94 @@ display(show_fig(fig))
 ```
 
 All three ROC curves confirm the classifiers are not performing at chance levels. The Random Forest curve lies slightly above the others, though the gap to XGBoost is small. Logistic Regression's AUC approaching the nonlinear models implies the high-income class occupies a nearly linearly separable region in feature space.
+
+### K-Means Clustering
+
+```{python}
+#| label: fig-kmeans
+#| fig-cap: "K-Means diagnostics (K = 2–8). Silhouette score peaks at K = 3 (dashed line), where the elbow plot also shows diminishing inertia returns, confirming three as the most coherent partition."
+
+fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+
+ax = axes[0]
+ax.plot(km_diag["k"], km_diag["inertia"], "o-", color="#4c8bb5", lw=2)
+ax.axvline(3, color="#e07b39", ls="--", lw=1.5, alpha=0.8, label="K = 3")
+ax.set_xlabel("Number of Clusters (K)", fontsize=11)
+ax.set_ylabel("Inertia (Within-cluster SS)", fontsize=11)
+ax.set_title("Elbow Plot", fontsize=11, fontweight="bold")
+ax.legend(fontsize=9)
+ax.spines[["top","right"]].set_visible(False)
+ax.grid(True, alpha=0.25, lw=0.5)
+
+ax = axes[1]
+ax.plot(km_diag["k"], km_diag["silhouette"], "o-", color="#2ca02c", lw=2)
+ax.axvline(3, color="#e07b39", ls="--", lw=1.5, alpha=0.8, label="K = 3 (selected)")
+ax.set_xlabel("Number of Clusters (K)", fontsize=11)
+ax.set_ylabel("Silhouette Score", fontsize=11)
+ax.set_title("Silhouette Score", fontsize=11, fontweight="bold")
+ax.legend(fontsize=9)
+ax.spines[["top","right"]].set_visible(False)
+ax.grid(True, alpha=0.25, lw=0.5)
+
+plt.tight_layout()
+display(show_fig(fig))
+```
+
+Both criteria agree on K = 3: the elbow plot shows diminishing inertia returns beyond K = 3, and the silhouette score peaks at K = 3 (score = `{python} round(float(km_diag.loc[km_diag["k"]==3, "silhouette"].values[0]), 3)`).
+
+```{python}
+#| label: tbl-cluster-profiles
+#| tbl-cap: "Mean structural and income characteristics by K-Means cluster (N = 173). Values are unscaled means; clustering was performed on standardised variables."
+
+prof = (df.groupby("Cluster Type")[["agriculture_share","urbanization","trade_share","log_gdp","gdp_per_capita"]]
+          .mean()
+          .reset_index())
+prof.columns = ["Cluster", "agri", "urban", "trade", "log_gdp_val", "gdp"]
+prof_styled = (prof.style
+    .format({
+        "agri":      "{:.1f}",
+        "urban":     "{:.1f}",
+        "trade":     "{:.1f}",
+        "log_gdp_val": "{:.2f}",
+        "gdp":       "{:,.0f}",
+    })
+    .relabel_index(
+        ["Cluster", "Agriculture Share (%)", "Urbanization (%)", "Trade Share (%)", "Log GDP", "GDP per Capita (USD)"],
+        axis="columns"
+    )
+    .set_properties(**{"text-align": "center"})
+    .set_properties(subset=["Cluster"], **{"text-align": "left"})
+    .hide(axis="index")
+    .set_caption(""))
+display(HTML(prof_styled.to_html()))
+```
+
+Three clusters emerge. **Agrarian** economies have high agriculture dependence (mean 21%) and low urbanisation (38%), with mean GDP per capita around \$3,000. **Mixed/Transitional** economies show much lower agriculture (4%) and higher urbanisation (73%), with mean GDP around \$22,000. **Urban Service** economies have near-zero agriculture (0.5%), very high urbanisation (89%), and mean GDP per capita of \$55,818.
+
+```{python}
+#| label: tbl-cluster-income
+#| tbl-cap: "Cluster composition by high-income classification."
+
+ct = pd.crosstab(df["Cluster Type"], df["Income Group"],
+                 margins=True, margins_name="Total")
+ct_styled = (ct.style
+    .highlight_max(axis=1, color="#d4edda", subset=pd.IndexSlice[:, ["High Income","Non-High Income"]])
+    .set_caption(""))
+display(HTML(ct_styled.to_html()))
+```
+
+The alignment between cluster membership and income status is strong. All but one Agrarian-cluster country is non-high-income; most Urban Service countries are high-income. Economic structure variables alone appear sufficient to recover most of the income divide.
+
+### Interactive Visualizations
+
+Three interactive figures are available at the [interactive visualizations page](viz.html): a world map coloured by cluster and sized by GDP per capita, an agriculture-vs-income scatter with hover tooltips, and an overlaid histogram comparing log GDP distributions across income groups.
+
+## Conclusions and Summary
+
+The central question was whether economic structure mediates the latitude–income association. The results are consistent with partial mediation: the latitude coefficient attenuates by 51% once agriculture share and urbanisation enter the model, and K-Means clustering on structural variables alone recovers the income divide closely. But geography does not dissolve — the coefficient in M5 remains highly significant ($p < 0.001$).
+
+All three classifiers achieve AUC above 0.92, and the narrow gap between Logistic Regression and Random Forest suggests the two income classes are largely separable in the feature space constructed here.
+
+**Limitations.** The analysis is cross-sectional — 2019 is a single slice, and causal claims are not available. The 39-country attrition concentrated in low-capacity states likely compresses the agriculture–income gradient relative to the full global population. Geographic proxies are coarse — latitude captures distance from the equator, not tropical disease burden, colonial extraction, or maritime access. The test set is small ($n = 35$); AUC estimates carry real uncertainty.
+
+**What comes next.** A panel from 1990–2020 would allow fixed-effects models to separate within-country dynamics from between-country levels. Adding institutional quality data would close the gap between the measured and unmeasured layers.
