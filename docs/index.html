@@ -41,6 +41,11 @@
     .finding .icon { font-size: 1.4rem; margin-bottom: 0.5rem; }
     .finding h3 { font-size: 0.95rem; font-weight: 700; margin-bottom: 0.4rem; }
     .finding p { font-size: 0.88rem; color: #555; margin: 0; }
+    .methods-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.8rem; margin: 1rem 0; }
+    .method-step { background: #fff; border-radius: 8px; padding: 1rem; box-shadow: 0 1px 4px rgba(0,0,0,0.08); border-left: 3px solid #74c2ff; }
+    .method-step .step-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #4c8bb5; margin-bottom: 0.3rem; }
+    .method-step p { font-size: 0.86rem; color: #444; margin: 0; }
+    .badge-best { display: inline-block; background: #74c476; color: #fff; font-size: 0.7rem; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: 10px; margin-left: 0.4rem; vertical-align: middle; }
     footer { text-align: center; padding: 1.5rem; font-size: 0.82rem; color: #888; border-top: 1px solid #e0e0e0; }
     footer a { color: #4c8bb5; text-decoration: none; }
   </style>
@@ -59,13 +64,23 @@
 <main>
   <section>
     <h2>Project Overview</h2>
-    <p>Countries at higher latitudes are systematically richer than tropical nations. But is this a direct geographic effect, or does it operate through the economic structures that geography shapes? This project uses 2019 cross-country data for <strong>173 nations</strong>, obtained via the REST Countries and World Bank Development Indicators APIs, to disentangle these pathways through exploratory analysis, OLS regression, and machine learning.</p>
+    <p>Countries at higher latitudes are systematically richer than tropical nations. But is this a direct geographic effect, or does it operate through economic structures that geography shapes? This project uses 2019 cross-country data for <strong>173 nations</strong> to test whether agriculture share, urbanisation, and trade openness mediate the latitude–income gap.</p>
     <div class="stats">
       <div class="stat-card"><div class="value">173</div><div class="label">Countries in sample</div></div>
       <div class="stat-card"><div class="value">63</div><div class="label">High-income countries</div></div>
       <div class="stat-card"><div class="value">11</div><div class="label">Features selected (LASSO)</div></div>
       <div class="stat-card"><div class="value">0.958</div><div class="label">Best AUC-ROC (Random Forest)</div></div>
       <div class="stat-card"><div class="value">3</div><div class="label">Economic clusters (K-Means)</div></div>
+    </div>
+  </section>
+  <section>
+    <h2>Methods Overview</h2>
+    <div class="methods-grid">
+      <div class="method-step"><div class="step-label">Data</div><p>REST Countries API + World Bank Indicators (2019). Inner join on ISO3 codes; complete-case filter → 173 countries.</p></div>
+      <div class="method-step"><div class="step-label">Feature Engineering</div><p>12 features: geographic (latitude², landlocked, tropical), structural (agriculture, urbanisation, trade), and interactions.</p></div>
+      <div class="method-step"><div class="step-label">LASSO + OLS</div><p>LASSO (5-fold CV) selects 11 features. Five nested OLS models with HC3 robust SE track latitude coefficient attenuation as structure variables enter.</p></div>
+      <div class="method-step"><div class="step-label">ML Classification</div><p>Stratified 80/20 split (N<sub>train</sub>=138, N<sub>test</sub>=35). Logistic Regression, Random Forest, XGBoost — hyperparameters tuned by 5-fold CV.</p></div>
+      <div class="method-step"><div class="step-label">Clustering</div><p>K-Means (K=2–8) on standardised structure variables. K selected by silhouette score.</p></div>
     </div>
   </section>
   <section>
@@ -79,10 +94,10 @@
   </section>
   <section>
     <h2>Machine Learning Results</h2>
-    <p>Three classifiers trained on a stratified 80/20 split (N_train=138, N_test=35) to predict high-income status (GDP per capita > $12,535). Hyperparameters selected by 5-fold CV.</p>
+    <p>Table 1 summarises model performance on the held-out test set (N=35). Three classifiers predict high-income status (GDP per capita &gt; $12,535); hyperparameters selected by 5-fold CV on the training set.</p>
     <div class="model-grid">
       <div class="model-card"><h3>Logistic Regression (baseline)</h3><div class="metric-row"><span>Accuracy</span><strong>85.7%</strong></div><div class="metric-row"><span>F1-Score</span><strong>0.8276</strong></div><div class="metric-row"><span>AUC-ROC</span><strong>0.9266</strong></div></div>
-      <div class="model-card best"><h3>Random Forest &#9733; Best</h3><div class="metric-row"><span>Accuracy</span><strong>88.6%</strong></div><div class="metric-row"><span>F1-Score</span><strong>0.8462</strong></div><div class="metric-row"><span>AUC-ROC</span><strong>0.958</strong></div></div>
+      <div class="model-card best"><h3>Random Forest <span class="badge-best">Best Model</span></h3><div class="metric-row"><span>Accuracy</span><strong>88.6%</strong></div><div class="metric-row"><span>F1-Score</span><strong>0.8462</strong></div><div class="metric-row"><span>AUC-ROC</span><strong>0.958</strong></div></div>
       <div class="model-card"><h3>XGBoost</h3><div class="metric-row"><span>Accuracy</span><strong>88.6%</strong></div><div class="metric-row"><span>F1-Score</span><strong>0.8333</strong></div><div class="metric-row"><span>AUC-ROC</span><strong>0.9371</strong></div></div>
     </div>
   </section>
