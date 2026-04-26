@@ -71,7 +71,6 @@
       <div class="stat-card"><div class="value">63</div><div class="label">High-income countries</div></div>
       <div class="stat-card"><div class="value">11</div><div class="label">Features selected (LASSO)</div></div>
       <div class="stat-card"><div class="value">0.958</div><div class="label">Best AUC-ROC (Random Forest)</div></div>
-      <div class="stat-card"><div class="value">3</div><div class="label">Economic clusters (K-Means)</div></div>
     </div>
   </section>
   <section>
@@ -81,7 +80,6 @@
       <div class="method-step"><div class="step-label">Feature Engineering</div><p>12 features: geographic (latitude², landlocked, tropical), structural (agriculture, urbanisation, trade), and interactions.</p></div>
       <div class="method-step"><div class="step-label">LASSO + OLS</div><p>LASSO (5-fold CV) selects 11 features. Five nested OLS models with HC3 robust SE track latitude coefficient attenuation as structure variables enter.</p></div>
       <div class="method-step"><div class="step-label">ML Classification</div><p>Stratified 80/20 split (N<sub>train</sub>=138, N<sub>test</sub>=35). Logistic Regression, Random Forest, XGBoost — hyperparameters tuned by 5-fold CV.</p></div>
-      <div class="method-step"><div class="step-label">Clustering</div><p>K-Means (K=2–8) on standardised structure variables. K selected by silhouette score.</p></div>
     </div>
   </section>
   <section>
