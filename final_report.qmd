@@ -14,6 +14,22 @@ format:
     code-fold: false
     number-sections: false
     fig-cap-location: bottom
+  pdf:
+    geometry:
+      - margin=1in
+      - top=0.8in
+    fig-pos: "H"
+    include-in-header:
+      text: |
+        \usepackage{titling}
+        \usepackage{float}
+        \setlength{\droptitle}{-2.5cm}
+        \pretitle{\begin{flushleft}\Large\bfseries}
+        \posttitle{\par\end{flushleft}\vskip 0.4em}
+        \preauthor{\begin{flushleft}\normalsize}
+        \postauthor{\end{flushleft}}
+        \predate{\begin{flushleft}\normalsize}
+        \postdate{\end{flushleft}\vskip 0.5em\hrule\vskip 0.8em}
 execute:
   echo: false
   warning: false
@@ -89,9 +105,10 @@ This project uses 2019 cross-country data for 173 nations to test that claim. **
 ### Data Sources and Acquisition
 
 Data were obtained from two APIs. **REST Countries** (`restcountries.com/v3.1/all`) provided geographic metadata — latitude, landlocked status, and region — for all sovereign nations. **World Bank Development Indicators** (`api.worldbank.org/v2`) provided five 2019 indicators: GDP per capita, trade share of GDP, urban population share, agriculture share of GDP, and total population.
+
 ### Data Cleaning and Wrangling
 
-The sample construction is summarised in Table 1; the final analytic sample contains **173 countries**. Missingness is concentrated in lower-capacity states, so the sample tilts toward countries with stronger statistical systems — the agriculture–income gradient in the results is likely understated relative to the full global distribution. GDP per capita is strongly right-skewed (skewness ≈ 2.1), so it is log-transformed to stabilise variance for OLS; population receives the same treatment.
+The sample construction is summarised in Table 1; the final analytic sample contains **173 countries**. Missingness is concentrated in lower-capacity states, so the sample tilts toward countries with stronger statistical systems — the agriculture–income gradient in the results is likely understated relative to the full global distribution. GDP per capita is strongly right-skewed (skewness of approximately 2.1), so it is log-transformed to stabilise variance for OLS; population receives the same treatment.
 
 ```{python}
 #| label: tbl-sample-flow
@@ -196,8 +213,7 @@ Distance from the equator correlates negatively with agriculture dependence ($r 
 
 ```{python}
 #| label: fig-latitude-income
-#| fig-cap: "Distance from the equator versus log GDP per capita across 173 countries (2019), coloured by income group."
-#| out-width: "70%"
+#| fig-cap: "Distance from the equator vs. log GDP per capita across 173 countries (2019), coloured by income group."
 
 p = (ggplot(df, aes(x="dist_equator", y="log_gdp", color="Income Group"))
      + geom_point(alpha=0.6, size=1.8)
@@ -256,7 +272,6 @@ display(HTML("<p style='font-size:0.85em;color:#666;margin-top:4px'>"
 ```{python}
 #| label: fig-coef-attenuation
 #| fig-cap: "Latitude coefficient and 95% confidence intervals across five nested OLS models. Each model adds one block of controls (x-axis labels); the orange arrow marks total attenuation from M1 to M5."
-#| out-width: "80%"
 #| fig-align: center
 
 ols_res = json.load(open(os.path.join(OUT, "ols_results.json")))
@@ -297,7 +312,7 @@ The latitude coefficient falls from 0.045 in M1 to 0.022 in M5, which falls by 5
 
 ```{python}
 #| label: fig-scatter-structure
-#| fig-cap: "Agriculture share (left) and urbanisation (right) versus log GDP per capita across 173 countries (2019), coloured by income group. Dashed lines are pooled OLS fits; $r$ values are annotated on each panel."
+#| fig-cap: "Agriculture share (left) and urbanisation (right) vs. log GDP per capita across 173 countries (2019), coloured by income group. Dashed lines are pooled OLS fits; $r$ values are annotated on each panel."
 
 income_colors = {"High Income": "#2166ac", "Non-High Income": "#d73027"}
 panels = [
@@ -407,7 +422,6 @@ Feature importance is approximately consistent across models. Agriculture share 
 ```{python}
 #| label: fig-roc
 #| fig-cap: "ROC curves for all three classifiers on the held-out test set. AUC values are shown in the legend; the dashed diagonal is the random-chance baseline."
-#| out-width: "80%"
 #| fig-align: center
 #| 
 # Reconstruct predictions for ROC
@@ -452,7 +466,7 @@ plt.tight_layout()
 display(show_fig(fig, "75%"))
 ```
 
-All three ROC curves lie close to the upper-left corner and well above the random-chance diagonal, indicating strong classification performance. Random Forest achieves the highest AUC (0.958), while XGBoost and Logistic Regression perform similarly (AUC ≈ 0.93). The high AUC across all models suggests that the selected features provide strong discriminative power between high- and non-high-income countries, with only modest gains from increased model complexity.
+All three ROC curves lie close to the upper-left corner and well above the random-chance diagonal, indicating strong classification performance. Random Forest achieves the highest AUC (0.958), while XGBoost and Logistic Regression perform similarly (AUC of approximately 0.93). The high AUC across all models suggests that the selected features provide strong discriminative power between high- and non-high-income countries, with only modest gains from increased model complexity.
 
 
 ## Conclusions and Summary
